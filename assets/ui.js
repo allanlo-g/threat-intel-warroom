@@ -111,7 +111,7 @@
       { cls: "", num: k.sources, lab: "本月來源數", sub: "去重後" }
     ];
     document.getElementById("kpis").innerHTML = cards.map(function (c) {
-      var help = c.help ? '<span class="help" title="' + esc(c.help) + '">?</span>' : "";
+      var help = c.help ? '<span class="help" data-tip="' + esc(c.help) + '" title="' + esc(c.help) + '">?</span>' : "";
       return '<div class="kpi ' + c.cls + '"><div class="num">' + c.num +
         '</div><div class="lab">' + c.lab + help + '</div><div class="sub">' + c.sub + "</div></div>";
     }).join("");

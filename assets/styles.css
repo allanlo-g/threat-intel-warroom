@@ -55,8 +55,17 @@ code{background:#e9eefb; padding:1px 6px; border-radius:4px; color:#1e3a8a; font
 .kpi .lab{font-size:12px; color:#334155; margin-top:4px; font-weight:600}
 .kpi .sub{font-size:11px; color:var(--mut); margin-top:6px}
 .kpi.hi .num{color:var(--hi)} .kpi.mid .num{color:var(--mid)} .kpi.acc .num{color:var(--acc)}
-.kpi .help{cursor:help; color:var(--mut); font-weight:400; font-size:11px; margin-left:4px;
-  border:1px solid var(--line); border-radius:50%; padding:0 5px}
+.kpi{position:relative}
+.kpi:hover{z-index:20}
+.kpi .help{position:relative; cursor:help; color:var(--acc); font-weight:600; font-size:11px; margin-left:5px;
+  border:1px solid var(--acc); border-radius:50%; padding:0 5px; background:#eaf1ff}
+.kpi .help:hover::after{
+  content:attr(data-tip); position:absolute; left:0; top:160%; width:250px; white-space:normal;
+  background:#0f1f3d; color:#fff; padding:9px 11px; border-radius:9px; font-size:12px; font-weight:400;
+  line-height:1.65; z-index:50; box-shadow:0 8px 24px rgba(15,31,61,.28)}
+.kpi .help:hover::before{
+  content:""; position:absolute; left:8px; top:130%; border:6px solid transparent;
+  border-bottom-color:#0f1f3d; z-index:51}
 
 .grid{display:grid; grid-template-columns:repeat(2,1fr); gap:15px}
 .grid2{display:grid; grid-template-columns:repeat(2,1fr); gap:15px; margin-bottom:15px}

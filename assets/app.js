@@ -297,6 +297,27 @@
 
   function savePending() { lsSet(LS.add(state.company.id), state.pending); }
 
+  // POST to an Apps Script Web App. no-cors: the request executes server-side even
+  // though we can't read the (cross-origin) response; we verify by re-reading the sheet.
+  function postEndpoint(url, payload) {
+    return fetch(url, { method: "POST", mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
+  }
+  function verifyMonth(year, month) {
+    var sid = state.company.years[year];
+    if (!sid) return Promise.resolve(null);
+    return D.fetchMonthLive(sid, year, month)
+      .then(function (raw) { return raw.map(state.normalize); })
+      .catch(function () { return null; });
+  }
+  function canonField(k, v) {
+    if (k === "origin") return D.canon.origin(v);
+    if (k === "severity") return D.canon.severity(v);
+    if (k === "category") return D.canon.category(v);
+    if (k === "countermeasure") return D.canon.counter(v);
+    return String(v == null ? "" : v).trim();
+  }
+
   function fmtDateISO(iso) {
     var p = (iso || "").split("-");
     return p.length === 3 ? p[0] + "/" + (+p[1]) + "/" + (+p[2]) : iso;
@@ -382,17 +403,15 @@
     var sheetName = rec.year + "年" + rec.month + "月";
     var row = REC_KEYS.map(function (k) { return rec[k] || ""; });
     status("寫入 Google Sheet（" + sheetName + "）...");
-    fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ sheet: sheetName, row: row }) })
-      .then(function (r) { return r.text().catch(function () { return ""; }); })
-      .then(function () {
-        var sid = state.company.years[rec.year];
-        return sid ? D.fetchMonthLive(sid, rec.year, rec.month).catch(function () { return null; }) : null;
-      })
+    postEndpoint(url, { action: "append", sheet: sheetName, row: row })
+      .then(function () { return verifyMonth(rec.year, rec.month); })
       .then(function (live) {
-        if (live) state.liveMonth = { year: rec.year, month: rec.month, recs: live.map(state.normalize) };
+        if (live) { state.liveMonth = { year: rec.year, month: rec.month, recs: live }; renderAll(); }
+        var found = live && live.some(function (r) { return r.title === rec.title; });
         ["f_title", "f_url", "f_affected", "f_progress"].forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ""; });
-        renderAll();
-        status("✓ 已送出寫入請求至 " + sheetName + "。請到「📋 情資明細」確認新列已出現。", "live");
+        if (found) status("✓ 已寫入並確認：" + sheetName + " 已新增該列，看板已更新。", "live");
+        else if (live) status("已送出，但回讀 " + sheetName + " 尚未看到該列。請確認 Apps Script 端點部署為「任何人可存取」，或稍候再按「🔄 即時更新」。", "err");
+        else status("已送出寫入請求，但此年度未設 Sheet ID 無法回讀確認。", "snap");
       })
       .catch(function (e) {
         status("直接寫入失敗（" + e.message + "）。請改用「📋 複製／⬇️ 匯出」貼回 Sheet。", "err");
@@ -477,7 +496,8 @@
   }
   function editField(sig, field, value) {
     var e = state.edits[sig] || {};
-    if (value === "") delete e[field]; else e[field] = value;
+    // 下拉欄位選「—」(空) = 取消覆寫；但「進度」空白是有意義的狀態(尚未處理) → 仍儲存
+    if (value === "" && field !== "progress") delete e[field]; else e[field] = value;
     if (Object.keys(e).length) state.edits[sig] = e; else delete state.edits[sig];
     lsSet(LS.edit(state.company.id), state.edits);
     refreshEditControls();
@@ -509,20 +529,34 @@
     if (!recs.length) { alert("本月沒有已編輯的列（請選單一月份）。"); return; }
     var sheetName = state.year + "年" + m + "月";
     status("寫回 " + recs.length + " 列分類至 " + sheetName + " ...");
-    var i = 0, okc = 0;
-    function next() {
-      if (i >= recs.length) {
-        status("✓ 已送出 " + okc + "/" + recs.length + " 筆分類更新至 " + sheetName + "。請按「🔄 即時更新」確認。", "live");
-        return;
-      }
-      var r = recs[i++];
+    var chain = Promise.resolve();
+    recs.forEach(function (r) {
       var e = state.edits[recSig(r)] || {};
       var fields = {}; Object.keys(e).forEach(function (k) { fields[k] = e[k]; });
-      fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action: "update", sheet: sheetName, title: r.title, url: r.url, fields: fields }) })
-        .then(function () { okc++; }).catch(function () { }).then(next);
-    }
-    next();
+      chain = chain.then(function () {
+        return postEndpoint(url, { action: "update", sheet: sheetName, title: r.title, url: r.url, fields: fields });
+      });
+    });
+    chain.then(function () { return verifyMonth(state.year, m); })
+      .then(function (live) {
+        if (!live) { status("已送出 " + recs.length + " 筆更新；此年度未設 Sheet ID，無法回讀確認。", "snap"); return; }
+        state.liveMonth = { year: state.year, month: m, recs: live };
+        var confirmed = 0;
+        recs.forEach(function (r) {
+          var e = state.edits[recSig(r)] || {};
+          var f = live.filter(function (x) { return x.title === r.title && (!r.url || x.url === r.url); })[0];
+          if (f && Object.keys(e).every(function (k) { return canonField(k, e[k]) === f[k]; })) confirmed++;
+        });
+        renderAll();
+        if (confirmed === recs.length)
+          status("✓ 已寫回並確認 " + confirmed + "/" + recs.length + " 筆至 " + sheetName + "，看板已更新。", "live");
+        else
+          status("已送出 " + recs.length + " 筆，回讀確認 " + confirmed + "/" + recs.length +
+            "（Google 試算表回讀可能延遲數秒，或端點未設為「任何人可存取」）。可稍候按「🔄 即時更新」再確認。", "err");
+      })
+      .catch(function (e) {
+        status("寫回失敗（" + e.message + "）。請改用「⬇️ 匯出分類修改」於 Sheet 手動更新。", "err");
+      });
   }
 
   // ---------- about ----------
