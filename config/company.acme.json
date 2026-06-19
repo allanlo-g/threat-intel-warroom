@@ -1,0 +1,19 @@
+{
+  "id": "acme",
+  "name": "範例客戶 A 公司",
+  "basedOnStandard": "2026.06",
+  "updatedAt": "2026-06-19",
+  "note": "示範客製：在標準來源外新增自有來源、隱藏不適用來源，並擴充自訂因應對策。",
+  "sourcesAdd": [
+    {"short": "A-SOC", "name": "A 公司內部 SOC 通報", "url": "", "tags": ["資安訊息情資", "資安事件"]},
+    {"short": "CISA", "name": "美國 CISA 公告", "url": "https://www.cisa.gov/news-events/cybersecurity-advisories", "tags": ["資安新聞", "資安漏洞"]}
+  ],
+  "sourcesHide": ["NCHU"],
+  "countermeasuresAdd": [
+    "提報資安治理委員會",
+    "啟動緊急應變(IR)流程"
+  ],
+  "taxonomyExtend": {
+    "riskScope": ["OT/產線設備", "雲端服務(SaaS)"]
+  }
+}

@@ -1,0 +1,15 @@
+# 調查 / 暫存檔
+_*.txt
+_*.csv
+_y*.xlsx
+*.tmp
+
+# 客戶交付打包輸出（由 scripts/package_client.py 產生）
+dist/
+
+# 本機開發工具設定
+.claude/
+
+# 系統
+.DS_Store
+Thumbs.db

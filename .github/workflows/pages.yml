@@ -1,0 +1,33 @@
+name: Deploy dashboard to GitHub Pages
+
+# 推上 main 即自動部署整個專案根目錄（顧問維護版）為線上 Demo。
+# 若只想公開某客戶獨立版，改 path 指向 dist/<id>（需先 commit dist 或在此 workflow 內執行打包）。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4

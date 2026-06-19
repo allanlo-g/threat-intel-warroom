@@ -1,0 +1,6 @@
+{
+  "mode": "consultant",
+  "consultantName": "資安顧問",
+  "companiesFile": "config/companies.json",
+  "_note": "顧問維護版：保留公司切換下拉，用於維護多家客戶資料與標準來源。客戶交付版由 scripts/package_client.py 產生（mode=client，鎖定單一公司、無切換）。"
+}
