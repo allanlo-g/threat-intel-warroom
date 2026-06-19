@@ -33,6 +33,10 @@
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
   function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { } }
 
+  // DOM helpers — tolerate elements that don't exist (read-only index.html omits many)
+  function $(id) { return document.getElementById(id); }
+  function on(id, ev, fn) { var el = $(id); if (el) el["on" + ev] = fn; }
+
   function status(html, cls) {
     document.getElementById("dataStatus").innerHTML =
       cls ? '<span class="' + cls + '">' + html + "</span>" : html;
@@ -473,16 +477,19 @@
 
   // ---------- detail + classification editing ----------
   function renderDetailView() {
-    var editing = state.editMode && state.month !== "all";
-    U.renderDetail(selectedRecords(), document.getElementById("detailSearch").value,
+    var canEdit = !!$("editToggle");                 // read-only page omits the edit toggle
+    var editing = canEdit && state.editMode && state.month !== "all";
+    var search = $("detailSearch");
+    U.renderDetail(selectedRecords(), search ? search.value : "",
       { edit: editing, eff: state.effective, sig: recSig, onEdit: editField });
     refreshEditControls();
   }
   function refreshEditControls() {
+    if (!$("editToggle")) return;                     // edit controls absent (read-only page)
     var n = Object.keys(state.edits).length;
-    document.getElementById("exportEditsBtn").hidden = !n;
-    document.getElementById("writeEditsBtn").hidden = !n;
-    var hint = document.getElementById("editHint");
+    $("exportEditsBtn").hidden = !n;
+    $("writeEditsBtn").hidden = !n;
+    var hint = $("editHint");
     if (state.editMode && state.month === "all") {
       hint.hidden = false;
       hint.innerHTML = "編輯分類請先在上方選擇<b>單一月份</b>（非「全年累計」）。";
@@ -561,6 +568,7 @@
 
   // ---------- about ----------
   function buildAbout() {
+    if (!$("aboutBox")) return;                       // read-only page has no 說明 view
     document.getElementById("aboutBox").innerHTML =
       '<h2>關於本戰情看板</h2>' +
       '<p>這是一套<b>設定驅動的靜態看板</b>，同一份程式碼可服務多家企業；資料結構一致（Google Sheet 月份分頁），各企業只需替換設定。</p>' +
@@ -612,64 +620,64 @@
       };
     });
 
-    document.getElementById("detailSearch").oninput = function () { renderDetailView(); };
-    document.getElementById("csvBtn").onclick = exportCSV;
-    document.getElementById("editToggle").onchange = function () {
+    on("detailSearch", "input", function () { renderDetailView(); });
+    on("csvBtn", "click", exportCSV);
+    on("editToggle", "change", function () {
       state.editMode = this.checked; renderDetailView();
-    };
-    document.getElementById("exportEditsBtn").onclick = exportEdits;
-    document.getElementById("writeEditsBtn").onclick = writeEdits;
+    });
+    on("exportEditsBtn", "click", exportEdits);
+    on("writeEditsBtn", "click", writeEdits);
 
-    // record maintenance
-    document.getElementById("addRecBtn").onclick = addRecord;
-    document.getElementById("writeSheetBtn").onclick = writeToSheet;
-    document.getElementById("copyRowsBtn").onclick = copyRows;
-    document.getElementById("exportRowsBtn").onclick = exportRows;
-    document.getElementById("clearRowsBtn").onclick = clearRows;
-    document.getElementById("saveWebAppBtn").onclick = function () {
+    // record maintenance (absent on the read-only index.html)
+    on("addRecBtn", "click", addRecord);
+    on("writeSheetBtn", "click", writeToSheet);
+    on("copyRowsBtn", "click", copyRows);
+    on("exportRowsBtn", "click", exportRows);
+    on("clearRowsBtn", "click", clearRows);
+    on("saveWebAppBtn", "click", function () {
       var u = (document.getElementById("webAppUrl").value || "").trim();
       lsSet(LS.webapp(state.company.id, state.year), u);
       renderMaintainView();
       status(u ? "已儲存 " + state.year + " 年寫入端點。" : "已清除端點設定。", "snap");
-    };
+    });
 
     // source editor add buttons
-    document.getElementById("addSrcBtn").onclick = function () {
+    on("addSrcBtn", "click", function () {
       var short = val("newSrcShort"), name = val("newSrcName");
       if (!short || !name) { alert("請至少填入簡稱與單位名稱。"); return; }
       var tags = val("newSrcTags").split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
       state.override.sourcesAdd = (state.override.sourcesAdd || []).concat([{ short: short, name: name, url: val("newSrcUrl"), tags: tags }]);
       ["newSrcShort", "newSrcName", "newSrcUrl", "newSrcTags"].forEach(function (i) { document.getElementById(i).value = ""; });
       commitOverride();
-    };
-    document.getElementById("addCounterBtn").onclick = function () {
+    });
+    on("addCounterBtn", "click", function () {
       var c = val("newCounter"); if (!c) return;
       state.override.countermeasuresAdd = (state.override.countermeasuresAdd || []).concat([c]);
       document.getElementById("newCounter").value = "";
       commitOverride();
-    };
-    document.getElementById("exportCfgBtn").onclick = function () {
+    });
+    on("exportCfgBtn", "click", function () {
       var out = Object.assign({ id: state.company.id, name: state.company.name }, state.override,
         { basedOnStandard: state.standard.version, updatedAt: new Date().toISOString().slice(0, 10) });
       download(JSON.stringify(out, null, 2), "company." + state.company.id + ".json");
-    };
-    document.getElementById("resetCfgBtn").onclick = function () {
+    });
+    on("resetCfgBtn", "click", function () {
       if (!confirm("確定還原為顧問標準層？將清除此瀏覽器暫存的本企業客製。")) return;
       lsDel(LS.cfg(state.company.id));
       selectCompany(state.company.id);
       var st = document.querySelector('.tab[data-view="sources"]'); if (st) st.click();
-    };
+    });
 
     // year settings
-    document.getElementById("addYearBtn").onclick = function () {
+    on("addYearBtn", "click", function () {
       var y = val("newYear").replace(/\D/g, ""); var id = D.sheetId(val("newYearId"));
       if (!y) { alert("請輸入年度。"); return; }
       state.company.years[y] = id; persistYears();
       document.getElementById("newYear").value = ""; document.getElementById("newYearId").value = "";
       U.renderYears(state.company, yearHandlers);
       initYearMonth();
-    };
-    document.getElementById("exportCompaniesBtn").onclick = function () {
+    });
+    on("exportCompaniesBtn", "click", function () {
       if (state.mode === "client") {
         // client deliverable: export app.json with the updated years for this single company
         var company = Object.assign({}, state.company, { years: state.company.years });
@@ -685,7 +693,7 @@
         return Object.assign({}, c, { years: state.company.years });
       });
       download(JSON.stringify({ consultantName: state.consultantName, standardVersion: state.standard.version, defaultCompany: state.defaultCompany || state.company.id, companies: companies }, null, 2), "companies.json");
-    };
+    });
   }
   function val(id) { return (document.getElementById(id).value || "").trim(); }
 

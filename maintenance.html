@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>企業情資戰情看板</title>
+<link rel="stylesheet" href="assets/styles.css?v=2026.06.19.1531">
+</head>
+<body>
+<div id="fileWarn" class="file-warn" hidden>
+  ⚠ 偵測到以 <code>file://</code> 直接開啟，瀏覽器會阻擋讀取設定檔。
+  請改用專案根目錄的 <code>start.bat</code>（Windows）或執行
+  <code>python -m http.server 8080</code> 後開啟 <code>http://localhost:8080</code>。
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">🛡️</span>
+    <div>
+      <div class="brand-title" id="brandTitle">企業情資戰情看板</div>
+      <div class="brand-sub" id="brandSub">Threat Intelligence War-Room</div>
+    </div>
+  </div>
+  <div class="topbar-ctrls">
+    <label class="ctrl" id="companyCtrl">企業
+      <select id="companySel"></select>
+    </label>
+    <label class="ctrl">年度
+      <select id="yearSel"></select>
+    </label>
+    <label class="ctrl">月份
+      <select id="monthSel"></select>
+    </label>
+    <button id="refreshBtn" class="btn" title="從 Google Sheet 即時抓取所選月份">🔄 即時更新</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-view="dashboard">📊 戰情看板</button>
+  <button class="tab" data-view="detail">📋 情資明細</button>
+  <button class="tab" data-view="maintain">✏️ 情資維護</button>
+  <button class="tab" data-view="sources">🗂️ 來源維護</button>
+  <button class="tab" data-view="years">📅 年度設定</button>
+  <button class="tab" data-view="about">ℹ️ 說明</button>
+</nav>
+
+<div id="dataStatus" class="data-status"></div>
+
+<!-- ===================== DASHBOARD ===================== -->
+<main id="view-dashboard" class="view">
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid">
+    <div class="card">
+      <div class="card-h">威脅程度分布 <span class="scope-tag" id="scope1"></span></div>
+      <canvas id="chartSeverity"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-h">威脅情報類別</div>
+      <canvas id="chartCategory"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-h">內外部來源占比</div>
+      <canvas id="chartOrigin"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-h">情資來源 Top 10</div>
+      <canvas id="chartSource"></canvas>
+    </div>
+    <div class="card wide">
+      <div class="card-h">全年每月情資量趨勢</div>
+      <canvas id="chartTrend"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-h">因應對策分布</div>
+      <canvas id="chartCounter"></canvas>
+    </div>
+  </section>
+</main>
+
+<!-- ===================== DETAIL ===================== -->
+<main id="view-detail" class="view" hidden>
+  <div class="toolbar">
+    <input id="detailSearch" class="search" placeholder="🔍 搜尋標題 / 來源 / 類別 ...">
+    <span class="muted" id="detailCount"></span>
+    <label class="edit-toggle"><input type="checkbox" id="editToggle"> ✏️ 編輯分類</label>
+    <span class="spacer"></span>
+    <button id="exportEditsBtn" class="btn" hidden>⬇️ 匯出分類修改</button>
+    <button id="writeEditsBtn" class="btn" hidden>🔗 寫回 Sheet</button>
+    <button id="csvBtn" class="btn">⬇️ 下載當月明細 (CSV)</button>
+  </div>
+  <div class="hintbox" id="editHint" hidden></div>
+  <div class="table-wrap">
+    <table id="detailTable" class="data-table">
+      <thead><tr>
+        <th>日期</th><th>來源</th><th>標題</th><th>內外部</th><th>類別</th>
+        <th>威脅程度</th><th>影響系統</th><th>因應對策</th><th>進度</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+
+<!-- ===================== MAINTAIN (record entry) ===================== -->
+<main id="view-maintain" class="view" hidden>
+  <div class="hintbox" id="maintainHint"></div>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-h">新增情資（<span id="maintainScope"></span>）</div>
+      <div class="form-grid" id="maintainForm"></div>
+      <div class="add-row" style="margin-top:16px">
+        <button id="addRecBtn" class="btn primary">＋ 加入本月清單</button>
+        <button id="writeSheetBtn" class="btn">🔗 直接寫入 Google Sheet</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h">尚未寫回 Sheet 的新增列 <span class="muted" id="pendingCount"></span></div>
+      <div class="table-wrap" style="max-height:320px">
+        <table class="data-table compact" id="pendingTable">
+          <thead><tr><th>日期</th><th>來源</th><th>標題</th><th>類別</th><th>程度</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="add-row">
+        <button id="copyRowsBtn" class="btn">📋 複製新增列（貼回 Sheet）</button>
+        <button id="exportRowsBtn" class="btn">⬇️ 匯出新增列 CSV</button>
+        <button id="clearRowsBtn" class="btn danger">🗑 清空清單</button>
+      </div>
+      <details style="margin-top:14px">
+        <summary class="muted" style="cursor:pointer">進階：直接寫入端點設定（Google Apps Script Web App）</summary>
+        <div class="add-row">
+          <input id="webAppUrl" placeholder="貼上該年度試算表的 Apps Script Web App URL">
+          <button id="saveWebAppBtn" class="btn">儲存</button>
+        </div>
+        <p class="muted" id="webAppHint"></p>
+      </details>
+    </div>
+  </div>
+</main>
+
+<!-- ===================== SOURCES ===================== -->
+<main id="view-sources" class="view" hidden>
+  <div class="panel-head">
+    <div>
+      <h2>來源維護</h2>
+      <p class="muted">標準層由顧問維護；下方為「本企業生效後」的來源清單。客戶的新增 / 隱藏 / 自訂對策會存在瀏覽器，並可匯出 JSON 交回顧問或提交至 Git。</p>
+    </div>
+    <div id="stdStatus" class="std-status"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-h">生效中的情資來源</div>
+      <table class="data-table compact" id="srcTable">
+        <thead><tr><th>簡稱</th><th>單位名稱</th><th>分類標籤</th><th>來源層</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="add-row">
+        <input id="newSrcShort" placeholder="簡稱">
+        <input id="newSrcName" placeholder="單位名稱">
+        <input id="newSrcUrl" placeholder="網址(選填)">
+        <input id="newSrcTags" placeholder="分類標籤(逗號分隔)">
+        <button id="addSrcBtn" class="btn">＋ 新增本企業來源</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">因應對策清單</div>
+      <ul class="chip-list" id="counterList"></ul>
+      <div class="add-row">
+        <input id="newCounter" placeholder="新增自訂因應對策">
+        <button id="addCounterBtn" class="btn">＋ 新增</button>
+      </div>
+      <div class="card-h" style="margin-top:18px">威脅程度 / 類別 詞彙（標準層）</div>
+      <div id="taxoView" class="taxo-view"></div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button id="exportCfgBtn" class="btn primary">⬇️ 匯出本企業設定 (company.json)</button>
+    <button id="resetCfgBtn" class="btn">↩ 還原為標準層</button>
+    <span class="muted" id="cfgHint"></span>
+  </div>
+</main>
+
+<!-- ===================== YEARS ===================== -->
+<main id="view-years" class="view" hidden>
+  <div class="panel-head">
+    <div>
+      <h2>年度設定</h2>
+      <p class="muted">設定各年度對應的 Google 試算表 ID（含過去與未來年份，如 2027）。貼上整個分享網址也可，系統會自動擷取 ID。</p>
+    </div>
+  </div>
+  <div class="card">
+    <table class="data-table" id="yearTable">
+      <thead><tr><th>年度</th><th>Google 試算表 ID / 網址</th><th>狀態</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="add-row">
+      <input id="newYear" placeholder="年度 (例 2027)" style="max-width:120px">
+      <input id="newYearId" placeholder="試算表 ID 或分享網址">
+      <button id="addYearBtn" class="btn">＋ 新增年度</button>
+    </div>
+  </div>
+  <div class="toolbar">
+    <button id="exportCompaniesBtn" class="btn primary">⬇️ 匯出 companies.json</button>
+    <span class="muted">月份分頁需命名為「YYYY年M月」，系統依此自動辨識。</span>
+  </div>
+</main>
+
+<!-- ===================== ABOUT ===================== -->
+<main id="view-about" class="view" hidden>
+  <div class="card prose" id="aboutBox"></div>
+</main>
+
+<footer class="foot">
+  <span id="footInfo"></span>
+  <span class="copyright">
+    製作：Allan Lo 顧問 ·
+    <a href="mailto:allanlo.plus@gmail.com">allanlo.plus@gmail.com</a> ·
+    <a href="http://www.123hi.org" target="_blank" rel="noopener">www.123hi.org</a> ·
+    © 2026 年 6 月
+  </span>
+</footer>
+
+<script src="vendor/chart.umd.min.js"></script>
+<script src="assets/data.js?v=2026.06.19.1531"></script>
+<script src="assets/stats.js?v=2026.06.19.1531"></script>
+<script src="assets/ui.js?v=2026.06.19.1531"></script>
+<script src="assets/app.js?v=2026.06.19.1531"></script>
+</body>
+</html>

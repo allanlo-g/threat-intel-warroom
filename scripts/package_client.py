@@ -53,7 +53,9 @@ def build_one(company, standard_version, refresh):
     os.makedirs(os.path.join(dist, "data"))
 
     # 1) shared front-end (code is identical across clients)
-    shutil.copy(rel("index.html"), dist)
+    shutil.copy(rel("index.html"), dist)          # 唯讀看板（一般 User）
+    if os.path.exists(rel("maintenance.html")):
+        shutil.copy(rel("maintenance.html"), dist)  # 維護後台（編輯/維護）
     shutil.copytree(rel("assets"), os.path.join(dist, "assets"))
     shutil.copytree(rel("vendor"), os.path.join(dist, "vendor"))  # Chart.js, for offline use
     shutil.copy(rel(".nojekyll"), dist)

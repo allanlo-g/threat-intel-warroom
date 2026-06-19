@@ -21,7 +21,7 @@ import sys
 from datetime import datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INDEX = os.path.join(ROOT, "index.html")
+HTML_FILES = ["index.html", "maintenance.html"]  # both share the same versioned assets
 ASSETS = ["assets/styles.css", "assets/data.js", "assets/stats.js", "assets/ui.js", "assets/app.js"]
 
 
@@ -30,18 +30,18 @@ def log(m):
 
 
 def bump(version):
-    html = io.open(INDEX, encoding="utf-8").read()
     changed = 0
-    for asset in ASSETS:
-        # match  href/src="<asset>"  or  "<asset>?v=anything"  -> set ?v=<version>
-        pat = re.compile(r'(href|src)="(' + re.escape(asset) + r')(\?v=[^"]*)?"')
-
-        def repl(m):
-            return m.group(1) + '="' + m.group(2) + "?v=" + version + '"'
-
-        html, n = pat.subn(repl, html)
-        changed += n
-    io.open(INDEX, "w", encoding="utf-8").write(html)
+    for fname in HTML_FILES:
+        path = os.path.join(ROOT, fname)
+        if not os.path.exists(path):
+            continue
+        html = io.open(path, encoding="utf-8").read()
+        for asset in ASSETS:
+            # match  href/src="<asset>"  or  "<asset>?v=anything"  -> set ?v=<version>
+            pat = re.compile(r'(href|src)="(' + re.escape(asset) + r')(\?v=[^"]*)?"')
+            html, n = pat.subn(lambda m: m.group(1) + '="' + m.group(2) + "?v=" + version + '"', html)
+            changed += n
+        io.open(path, "w", encoding="utf-8").write(html)
     return changed
 
 
@@ -53,7 +53,7 @@ def main():
 
     version = args.version or datetime.now().strftime("%Y.%m.%d.%H%M")
     n = bump(version)
-    log("已將 %d 個資產版本更新為 ?v=%s（index.html）" % (n, version))
+    log("已將 %d 個資產版本更新為 ?v=%s（index.html + maintenance.html）" % (n, version))
     if n == 0:
         log("警告：未找到資產引用，請確認 index.html 的 <script>/<link> 路徑。")
 
