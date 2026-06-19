@@ -150,9 +150,9 @@
       renderAll();
       var n = recs.length;
       status(n
-        ? '已載入快照 <b>' + n + '</b> 筆（' + (snap.name || meta.name) + '）。點「🔄 即時更新」可抓取本月最新資料。'
-        : '尚無快照資料。請至「年度設定」設定試算表，並執行 <code>python scripts/snapshot.py</code>，或按「🔄 即時更新」。',
-        n ? "snap" : "err");
+        ? '已載入快照 <b>' + n + '</b> 筆（' + (snap.name || meta.name) + '），正在自動更新本月最新情資 ...'
+        : '尚無快照資料，正在自動抓取本月最新情資 ...', "snap");
+      autoRefreshCurrentMonth();   // 每次開啟/切換企業，自動先更新當月為最新
     });
   }
 
@@ -438,20 +438,43 @@
   function persistYears() { lsSet(LS.years(state.company.id), state.company.years); }
 
   // ---------- live refresh ----------
-  function liveRefresh() {
-    var id = state.company.years[state.year];
-    if (!id) { status("此年度尚未設定試算表 ID，無法即時更新。請至「年度設定」。", "err"); return; }
-    var m = state.month === "all" ? (new Date().getMonth() + 1) : parseInt(state.month, 10);
-    status("即時抓取 " + state.year + " 年 " + m + " 月 ...");
-    D.fetchMonthLive(id, state.year, m).then(function (rawRecs) {
+  // Core live refresh for one month. auto=true => triggered automatically on load
+  // (gentler messaging, never blocks on missing sheet id).
+  function refreshMonth(year, month, auto) {
+    var id = state.company.years[year];
+    if (!id) {
+      if (!auto) status("此年度尚未設定試算表 ID，無法即時更新。請至「年度設定」。", "err");
+      return Promise.resolve(false);
+    }
+    if (!auto) status("即時抓取 " + year + " 年 " + month + " 月 ...");
+    return D.fetchMonthLive(id, year, month).then(function (rawRecs) {
       var recs = rawRecs.map(function (r) { return state.normalize(r); });
-      state.liveMonth = { year: state.year, month: m, recs: recs };
-      if (state.month !== "all") { state.month = m; document.getElementById("monthSel").value = m; }
+      state.liveMonth = { year: year, month: month, recs: recs };
+      if (state.year === year && state.month !== "all") {
+        state.month = month; var ms = $("monthSel"); if (ms) ms.value = month;
+      }
       renderAll();
-      status('✓ 即時更新成功：' + state.year + " 年 " + m + " 月共 <b>" + recs.length + "</b> 筆（來源：Google Sheet 即時）。", "live");
+      status((auto ? "✓ 已自動更新本月最新情資：" : "✓ 即時更新成功：") +
+        year + " 年 " + month + " 月共 <b>" + recs.length + "</b> 筆（來源：Google Sheet 即時）。", "live");
+      return true;
     }).catch(function (e) {
-      status("即時更新失敗（" + e.message + "）。可能是該年度試算表未開放連結存取，已沿用快照資料。", "err");
+      if (auto) status("本月自動更新失敗（" + e.message + "），先顯示快照資料；可按「🔄 即時更新」重試。", "snap");
+      else status("即時更新失敗（" + e.message + "）。可能是該年度試算表未開放連結存取，已沿用快照資料。", "err");
+      return false;
     });
+  }
+
+  function liveRefresh() {
+    var m = state.month === "all" ? (new Date().getMonth() + 1) : parseInt(state.month, 10);
+    refreshMonth(state.year, m, false);
+  }
+
+  // Auto-refresh the current calendar month on every page open / company switch.
+  function autoRefreshCurrentMonth() {
+    var now = new Date();
+    var y = now.getFullYear(), m = now.getMonth() + 1;
+    if (!state.company.years[y]) return;   // current year not configured -> keep snapshot
+    refreshMonth(y, m, true);
   }
 
   // ---------- CSV export ----------
