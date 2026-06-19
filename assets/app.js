@@ -131,6 +131,7 @@
 
     status("載入「" + meta.name + "」資料中 ...");
     D.jget(ovPath).catch(function () { return {}; }).then(function (fileOv) {
+      state.fileOverride = fileOv || {};            // cached so cross-tab "reset" can fall back
       var localOv = lsGet(LS.cfg(id));
       state.override = localOv || fileOv || {};
       state.effective = S.mergeConfig(state.standard, state.override);
@@ -278,21 +279,36 @@
       "本企業客製已" + (lsGet(LS.cfg(state.company.id)) ? "暫存於此瀏覽器" : "與檔案一致") + "。";
   }
 
-  function commitOverride() {
-    state.override.basedOnStandard = state.standard.version;
+  // re-run the normalizer on a record using its raw source (so source-list edits apply)
+  function reNorm(r) {
+    return state.normalize({
+      date: r.date, day: r.day, year: r.year, month: r.month, source: r.sourceRaw,
+      title: r.title, url: r.url, origin: r.origin, category: r.category,
+      severity: r.severity, riskScope: r.riskScope, affected: r.affected,
+      countermeasure: r.countermeasure, progress: r.progress
+    });
+  }
+  function rebuildFromOverride() {
     state.effective = S.mergeConfig(state.standard, state.override);
     state.normalize = D.makeNormalizer(state.effective.sources);
-    // re-normalize records so renamed/added source aliases take effect on charts
-    state.allRecords = state.allRecords.map(function (r) {
-      return state.normalize({
-        date: r.date, day: r.day, year: r.year, month: r.month, source: r.sourceRaw,
-        title: r.title, url: r.url, origin: r.origin, category: r.category,
-        severity: r.severity, riskScope: r.riskScope, affected: r.affected,
-        countermeasure: r.countermeasure, progress: r.progress
-      });
-    });
+    state.allRecords = state.allRecords.map(reNorm);
+    if (state.liveMonth) state.liveMonth.recs = state.liveMonth.recs.map(reNorm);
+  }
+  function commitOverride() {
+    state.override.basedOnStandard = state.standard.version;
+    rebuildFromOverride();
     lsSet(LS.cfg(state.company.id), state.override);
     renderSourcesView();
+  }
+
+  // Re-apply settings/edits saved by another tab (same origin) and re-render.
+  function reloadLocalState() {
+    var id = state.company.id;
+    state.override = lsGet(LS.cfg(id)) || state.fileOverride || {};
+    state.pending = lsGet(LS.add(id)) || [];
+    state.edits = lsGet(LS.edit(id)) || {};
+    rebuildFromOverride();
+    renderAll();
   }
 
   // ---------- record maintenance ----------
@@ -619,6 +635,22 @@
 
   // ---------- events ----------
   function wireGlobal() {
+    // Live sync across same-origin tabs (e.g. maintenance.html ↔ index.html):
+    // localStorage writes in another tab fire here; re-apply for the active company.
+    window.addEventListener("storage", function (e) {
+      if (!state.company || !e.key) return;
+      var id = state.company.id;
+      if (e.key === LS.cfg(id) || e.key === LS.edit(id) || e.key === LS.add(id)) {
+        reloadLocalState();
+        status("🔄 已同步其他分頁的設定／編輯變更。", "live");
+      } else if (e.key === LS.years(id)) {
+        var meta = state.companies.filter(function (c) { return c.id === id; })[0] || {};
+        state.company.years = Object.assign({}, meta.years, lsGet(LS.years(id)) || {});
+        reloadLocalState();
+        status("🔄 已同步其他分頁的年度設定變更。", "live");
+      }
+    });
+
     document.getElementById("companySel").onchange = function () { selectCompany(this.value); };
     document.getElementById("yearSel").onchange = function () {
       state.year = parseInt(this.value, 10);
