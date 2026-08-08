@@ -13,7 +13,7 @@
     effective: null,          // merged effective config
     normalize: null,
     allRecords: [],           // normalized snapshot records
-    liveMonth: null,          // {year, month, recs}
+    liveMonths: {},           // live-fetched months cache: {"year-month": {year, month, recs}}
     pending: [],              // locally-added raw records not yet written back to the Sheet
     edits: {},                // client classification edits on fetched records {sig: {field:value}}
     editMode: false,
@@ -143,7 +143,7 @@
         (snap.years[y] || []).forEach(function (r) { recs.push(state.normalize(r)); });
       });
       state.allRecords = recs;
-      state.liveMonth = null;
+      state.liveMonths = {};
       state.pending = lsGet(LS.add(id)) || [];
       state.edits = lsGet(LS.edit(id)) || {};
       document.getElementById("brandTitle").textContent = brandTitleFor(meta);
@@ -153,7 +153,7 @@
       status(n
         ? '已載入快照 <b>' + n + '</b> 筆（' + (snap.name || meta.name) + '），正在自動更新本月最新情資 ...'
         : '尚無快照資料，正在自動抓取本月最新情資 ...', "snap");
-      autoRefreshCurrentMonth();   // 每次開啟/切換企業，自動先更新當月為最新
+      autoRefreshMonths();   // 每次開啟/切換企業，自動更新當月並回補快照缺漏的月份
     });
   }
 
@@ -186,10 +186,11 @@
   // ---------- record access ----------
   function yearRecords(year) {
     var recs = state.allRecords.filter(function (r) { return r.year === year; });
-    if (state.liveMonth && state.liveMonth.year === year) {
-      recs = recs.filter(function (r) { return r.month !== state.liveMonth.month; })
-        .concat(state.liveMonth.recs);
-    }
+    Object.keys(state.liveMonths).forEach(function (k) {
+      var lm = state.liveMonths[k];
+      if (lm.year !== year) return;
+      recs = recs.filter(function (r) { return r.month !== lm.month; }).concat(lm.recs);
+    });
     if (state.pending.length) {
       recs = recs.concat(state.pending.filter(function (p) { return p.year === year; })
         .map(state.normalize));
@@ -292,7 +293,9 @@
     state.effective = S.mergeConfig(state.standard, state.override);
     state.normalize = D.makeNormalizer(state.effective.sources);
     state.allRecords = state.allRecords.map(reNorm);
-    if (state.liveMonth) state.liveMonth.recs = state.liveMonth.recs.map(reNorm);
+    Object.keys(state.liveMonths).forEach(function (k) {
+      state.liveMonths[k].recs = state.liveMonths[k].recs.map(reNorm);
+    });
   }
   function commitOverride() {
     state.override.basedOnStandard = state.standard.version;
@@ -426,7 +429,7 @@
     postEndpoint(url, { action: "append", sheet: sheetName, row: row })
       .then(function () { return verifyMonth(rec.year, rec.month); })
       .then(function (live) {
-        if (live) { state.liveMonth = { year: rec.year, month: rec.month, recs: live }; renderAll(); }
+        if (live) { state.liveMonths[rec.year + "-" + rec.month] = { year: rec.year, month: rec.month, recs: live }; renderAll(); }
         var found = live && live.some(function (r) { return r.title === rec.title; });
         ["f_title", "f_url", "f_affected", "f_progress"].forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ""; });
         if (found) status("✓ 已寫入並確認：" + sheetName + " 已新增該列，看板已更新。", "live");
@@ -465,12 +468,12 @@
     if (!auto) status("即時抓取 " + year + " 年 " + month + " 月 ...");
     return D.fetchMonthLive(id, year, month).then(function (rawRecs) {
       var recs = rawRecs.map(function (r) { return state.normalize(r); });
-      state.liveMonth = { year: year, month: month, recs: recs };
-      if (state.year === year && state.month !== "all") {
+      state.liveMonths[year + "-" + month] = { year: year, month: month, recs: recs };
+      if (!auto && state.year === year && state.month !== "all") {
         state.month = month; var ms = $("monthSel"); if (ms) ms.value = month;
       }
       renderAll();
-      status((auto ? "✓ 已自動更新本月最新情資：" : "✓ 即時更新成功：") +
+      status((auto ? "✓ 已自動更新最新情資：" : "✓ 即時更新成功：") +
         year + " 年 " + month + " 月共 <b>" + recs.length + "</b> 筆（來源：Google Sheet 即時）。", "live");
       return true;
     }).catch(function (e) {
@@ -485,12 +488,35 @@
     refreshMonth(state.year, m, false);
   }
 
-  // Auto-refresh the current calendar month on every page open / company switch.
-  function autoRefreshCurrentMonth() {
+  // Auto-refresh on page open / company switch: the current calendar month first,
+  // then backfill any earlier month of the current year missing from the snapshot
+  // (e.g. snapshot stops at June, today is Aug -> July would otherwise show 0).
+  function autoRefreshMonths() {
     var now = new Date();
     var y = now.getFullYear(), m = now.getMonth() + 1;
     if (!state.company.years[y]) return;   // current year not configured -> keep snapshot
-    refreshMonth(y, m, true);
+    var have = {};
+    state.allRecords.forEach(function (r) { if (r.year === y) have[r.month] = 1; });
+    var missing = [];
+    for (var i = 1; i < m; i++) if (!have[i]) missing.push(i);
+    refreshMonth(y, m, true).then(function () {
+      // sequential fetches: stay gentle on the gviz endpoint
+      var chain = Promise.resolve();
+      missing.forEach(function (mm) {
+        chain = chain.then(function () { return refreshMonth(y, mm, true); });
+      });
+    });
+  }
+
+  // When the user switches to a month that has no data yet (not in the snapshot,
+  // not fetched live), pull it from the Sheet automatically instead of showing 0.
+  function maybeAutoFetchSelected() {
+    if (state.month === "all" || !state.company) return;
+    var m = parseInt(state.month, 10);
+    if (state.liveMonths[state.year + "-" + m]) return;   // already fetched live
+    if (selectedRecords().length) return;                 // snapshot already has data
+    if (!state.company.years[state.year]) return;         // no sheet configured
+    refreshMonth(state.year, m, true);
   }
 
   // ---------- CSV export ----------
@@ -586,7 +612,7 @@
     chain.then(function () { return verifyMonth(state.year, m); })
       .then(function (live) {
         if (!live) { status("已送出 " + recs.length + " 筆更新；此年度未設 Sheet ID，無法回讀確認。", "snap"); return; }
-        state.liveMonth = { year: state.year, month: m, recs: live };
+        state.liveMonths[state.year + "-" + m] = { year: state.year, month: m, recs: live };
         var confirmed = 0;
         recs.forEach(function (r) {
           var e = state.edits[recSig(r)] || {};
@@ -657,10 +683,12 @@
       var now = new Date();
       buildMonthSel(state.year, now.getFullYear(), now.getMonth() + 1);
       renderAll();
+      maybeAutoFetchSelected();
     };
     document.getElementById("monthSel").onchange = function () {
       state.month = this.value === "all" ? "all" : parseInt(this.value, 10);
       renderAll();
+      maybeAutoFetchSelected();
     };
     document.getElementById("refreshBtn").onclick = liveRefresh;
 
