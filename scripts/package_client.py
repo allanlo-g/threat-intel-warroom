@@ -111,10 +111,10 @@ def build_one(company, standard_version, refresh):
         "若要直接寫入，請依 apps_script_endpoint.gs 的步驟部署端點後填入網址。\n"
         "如需更新標準來源，請向顧問索取新版 config/standard-sources.json。\n\n"
         "---------------------------------\n"
-        "製作：Allan Lo 顧問\n"
-        "Email：allanlo.plus@gmail.com\n"
-        "網站：http://www.123hi.org\n"
-        "(c) 2026 年 6 月 版權所有\n" % name)
+        "系統製作-每月情資資訊維護：米數資科顧問部（isms@medsigtw.com）\n"
+        "網站：https://www.medsigtw.com\n"
+        "著作權聲明：本戰情看板僅提供每月情資蒐集之摘要、連結及分類分析，\n"
+        "所有情資來源都已清楚標示，相關資訊版權為所連接資訊之機關單位及企業行號。\n" % name)
 
     total = 0
     try:

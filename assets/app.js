@@ -114,7 +114,7 @@
 
   function brandTitleFor(meta) {
     if (state.mode === "client" && state.branding && state.branding.title) return state.branding.title;
-    return meta.name + " · 情資戰情看板";
+    return "米數資科 · 情資戰情看板";
   }
 
   // ---------- company selection ----------
@@ -653,10 +653,11 @@
       '<li><b>本月中高威脅</b>：威脅程度為「高」或「中」的筆數。</li>' +
       '<li><b>本月待處理</b>：' + U.esc(S.PENDING_DEF) + '</li>' +
       '<li><b>本月來源數</b>：當月出現的情資來源（已去重、已正規化）數量。</li></ul>' +
-      '<h3>版權宣告</h3><p>製作：<b>Allan Lo 顧問</b><br>' +
-      'Email：<a href="mailto:allanlo.plus@gmail.com">allanlo.plus@gmail.com</a><br>' +
-      '網站：<a href="http://www.123hi.org" target="_blank" rel="noopener">http://www.123hi.org</a><br>' +
-      '© 2026 年 6 月　版權所有</p>';
+      '<h3>版權宣告</h3><p>系統製作-每月情資資訊維護：<b>米數資科顧問部</b>' +
+      '（<a href="mailto:isms@medsigtw.com">isms@medsigtw.com</a>）｜' +
+      '<a href="https://www.medsigtw.com" target="_blank" rel="noopener">https://www.medsigtw.com</a><br>' +
+      '著作權聲明：本戰情看板僅提供每月情資蒐集之摘要、連結及分類分析，' +
+      '所有情資來源都已清楚標示，相關資訊版權為所連接資訊之機關單位及企業行號。</p>';
   }
 
   // ---------- events ----------
