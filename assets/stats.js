@@ -88,6 +88,28 @@
     return !CLOSED_RE.test(r.progress || "");
   }
 
+  // ---- vulnerability exploitability (2 columns added to the sheet 2026-11) --
+  // Tabs before 2026-11 have no such columns, so only records that actually
+  // carry a value are counted — older months never show up as "否".
+  var VULN_DEF = "「弱點已知被利用(CISA KEV)」與「弱點能否被自動化利用」為 2026 年 11 月起新增的欄位，" +
+    "統計只計入有填值的情資；之前的月份無此資料。";
+  function vulnStats(records) {
+    function tally(key) {
+      var m = {}, n = 0;
+      records.forEach(function (r) {
+        if (!r[key]) return;
+        m[r[key]] = (m[r[key]] || 0) + 1; n++;
+      });
+      return { counts: m, total: n };
+    }
+    var kev = tally("kev"), auto = tally("automatable");
+    return {
+      kev: kev, automatable: auto,
+      // records carrying at least one of the two fields
+      total: records.filter(function (r) { return r.kev || r.automatable; }).length
+    };
+  }
+
   // KPI summary for the current selection.
   function kpis(monthRecs, yearRecs) {
     function sev(recs, s) { return recs.filter(function (r) { return r.severity === s; }).length; }
@@ -98,7 +120,9 @@
       monthHi: sev(monthRecs, "高") + sev(monthRecs, "中"),
       yearHi: sev(yearRecs, "高") + sev(yearRecs, "中"),
       sources: new Set(monthRecs.map(function (r) { return r.source; })).size,
-      pending: pending(monthRecs)
+      pending: pending(monthRecs),
+      kev: monthRecs.filter(function (r) { return r.kev === "是"; }).length,
+      kevRated: monthRecs.filter(function (r) { return r.kev; }).length
     };
   }
 
@@ -111,6 +135,8 @@
     monthlyTrend: monthlyTrend,
     kpis: kpis,
     isPending: isPending,
-    PENDING_DEF: PENDING_DEF
+    PENDING_DEF: PENDING_DEF,
+    vulnStats: vulnStats,
+    VULN_DEF: VULN_DEF
   };
 })(window);

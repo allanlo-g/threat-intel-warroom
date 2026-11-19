@@ -1,0 +1,11 @@
+{
+  "id": "demo",
+  "name": "示範企業",
+  "basedOnStandard": "2026.06",
+  "updatedAt": "2026-06-19",
+  "note": "繼承顧問標準層，未做客製覆寫。客戶可在看板『來源維護』頁新增 sourcesAdd / 自訂 countermeasuresAdd。",
+  "sourcesAdd": [],
+  "sourcesHide": [],
+  "countermeasuresAdd": [],
+  "taxonomyExtend": {}
+}

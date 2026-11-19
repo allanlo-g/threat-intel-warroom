@@ -25,11 +25,63 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MONTH_RE = re.compile(r"^\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*$")
 
-# canonical column order of a monthly tab (11 columns)
-FIELDS = [
+# Monthly tabs do NOT share one fixed column order (2023-25 have 11 columns,
+# some 2026 tabs dropped 風險層面/受影響版本, and 2026-11 onward adds the two
+# vulnerability columns), so columns are resolved from the header row.
+# Keep these rules in sync with FIELDS in assets/data.js.
+HEADER_RULES = [
+    ("date", r"資料日期"),
+    ("source", r"^資料來源"),
+    ("title", r"資料標題"),
+    ("url", r"網址"),
+    ("origin", r"威脅情資來源"),
+    ("category", r"威脅情報類別"),
+    ("severity", r"威脅程度"),
+    ("riskScope", r"風險之層面|影響資通系統"),
+    ("affected", r"受影響"),
+    ("countermeasure", r"因應對策"),
+    ("progress", r"執行進度"),
+    ("kev", r"(?i)KEV|已知被利用"),
+    ("automatable", r"自動化"),
+]
+# always present in a record; kev/automatable only where the tab has the columns
+BASE_FIELDS = [
     "date", "source", "title", "url", "origin", "category",
     "severity", "riskScope", "affected", "countermeasure", "progress",
 ]
+LEGACY_LAYOUT = BASE_FIELDS
+V2_LAYOUT = [
+    "date", "source", "title", "url", "origin", "category",
+    "severity", "countermeasure", "progress", "kev", "automatable",
+]
+
+
+def default_layout(year, month):
+    """Layout assumed when a tab's header row is unreadable."""
+    return V2_LAYOUT if year * 100 + month >= 202611 else LEGACY_LAYOUT
+
+
+def layout_from_headers(labels):
+    """Header labels -> one entry per column: a field key or None."""
+    used = set()
+    layout = []
+    for raw in labels:
+        lab = re.sub(r"\s+", "", raw or "")
+        hit = None
+        if lab:
+            for key, pat in HEADER_RULES:
+                if key not in used and re.search(pat, lab):
+                    hit = key
+                    used.add(key)
+                    break
+        layout.append(hit)
+    # first four columns are fixed on every known tab; fall back to position
+    # when their header cell is blank (e.g. 2026年1月 has no 資料日期 label)
+    for i, key in enumerate(["date", "source", "title", "url"]):
+        if key not in used and i < len(layout) and layout[i] is None:
+            layout[i] = key
+            used.add(key)
+    return layout
 
 
 def log(msg):
@@ -72,17 +124,20 @@ def parse_workbook(xlsx_bytes):
         rows = list(ws.iter_rows(values_only=True))
         if not rows:
             continue
+        layout = layout_from_headers([cell_str(c) for c in rows[0]])
+        if "title" not in layout:
+            layout = default_layout(year, month)
         for r in rows[1:]:  # skip header
             cells = [cell_str(c) for c in r]
             if not any(cells):
                 continue
+            rec = {f: "" for f in BASE_FIELDS}
+            for i, f in enumerate(layout):
+                if f and i < len(cells):
+                    rec[f] = cells[i]
             # title is the strongest signal that a row is real data
-            title = cells[2] if len(cells) > 2 else ""
-            if not title:
+            if not rec["title"]:
                 continue
-            rec = {}
-            for i, f in enumerate(FIELDS):
-                rec[f] = cells[i] if i < len(cells) else ""
             rec["year"] = year
             rec["month"] = month
             # derive day from date when possible

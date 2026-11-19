@@ -1,0 +1,38 @@
+{
+  "version": "2026.06",
+  "updatedAt": "2026-06-19",
+  "maintainer": "資安顧問（標準層）",
+  "note": "顧問統一維護的標準情資來源與分類詞彙。客戶可於 company.<id>.json 覆寫或擴充，並以 basedOnStandard 記錄所依據的版本以利偵測更新。",
+  "taxonomy": {
+    "origin": ["內部事件", "外部資訊"],
+    "category": [
+      "外部：威脅情報",
+      "外部：漏洞情報",
+      "外部：安全事件情報",
+      "外部：安全建議和指南",
+      "外部：法規和合規性情報"
+    ],
+    "severity": ["高", "中", "低", "現行不影響"],
+    "riskScope": [
+      "ALL", "防火牆/網路設備", "Mail Server", "ERP", "MES",
+      "其他資訊系統", "NAS", "其他網路設備"
+    ]
+  },
+  "countermeasures": [
+    "僅列入知識庫",
+    "進行詳細風險評鑑",
+    "技術預防和檢測控制",
+    "執行資安測試和技術的輸入",
+    "通知提醒User或教育訓練"
+  ],
+  "sources": [
+    {"short": "NICS", "name": "國家資通安全研究院", "url": "https://www.nics.nat.gov.tw/", "tags": ["資安新聞", "資安漏洞", "法律法規遵循"]},
+    {"short": "Twcert", "name": "台灣電腦網路危機處理暨協調中心", "url": "https://www.twcert.org.tw/tw/mp-1.html", "tags": ["資安新聞", "資安漏洞"]},
+    {"short": "Fisac", "name": "金融資安資訊分享與分析中心", "url": "https://www.fisac.tw/", "tags": ["資安新聞", "資安訊息情資", "資安漏洞"]},
+    {"short": "iTHome", "name": "iTHome 資安週報", "url": "https://www.ithome.com.tw/security", "tags": ["資安新聞", "資安訊息情資"]},
+    {"short": "TechNews", "name": "資安快報（TechNews）", "url": "https://technews.tw/category/internet/%e8%b3%87%e8%a8%8a%e5%ae%89%e5%85%a8/", "tags": ["資安新聞", "資安訊息情資"]},
+    {"short": "Trendmicro", "name": "趨勢資安新聞週報", "url": "https://blog.trendmicro.com.tw/?cat=13", "tags": ["資安新聞", "資安訊息情資"]},
+    {"short": "HISAC", "name": "衛福部資安資訊分享與分析中心", "url": "https://hisac.nat.gov.tw/", "tags": ["資安新聞", "資安訊息情資", "法律法規遵循"]},
+    {"short": "NCHU", "name": "中興大學資安管理", "url": "https://sites.google.com/email.nchu.edu.tw/nchu-isms/", "tags": ["法律法規遵循"]}
+  ]
+}
