@@ -75,6 +75,12 @@ code{background:#e9eefb; padding:1px 6px; border-radius:4px; color:#1e3a8a; font
 .card canvas{max-height:260px}
 .card.wide canvas{max-height:280px}
 .scope-tag{font-size:11px; color:var(--mut); font-weight:400}
+.empty-note{min-height:200px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; text-align:center; color:var(--mut); font-size:14px}
+.empty-note[hidden]{display:none}
+.empty-note span{font-size:12px}
+.card-note{margin:10px 0 0; font-size:11px; line-height:1.6; color:var(--mut)}
+.table-note{margin:10px 2px 0; line-height:1.6}
+.data-table th br+*{font-weight:400}
 
 @media(max-width:880px){ .grid,.grid2{grid-template-columns:1fr} }
 

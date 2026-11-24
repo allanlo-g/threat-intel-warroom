@@ -88,6 +88,52 @@
     return !CLOSED_RE.test(r.progress || "");
   }
 
+  // ---- vulnerability assessment (columns added to the sheet from 2026-11) ----
+  // Tabs before 2026-11 have no such columns, so only records that actually
+  // carry a value are counted — older months never show up as "否".
+  var VULN_DEF = "弱點評估欄位（已知被利用 KEV、能否被自動化利用、技術影響程度、處置期限）為 2026 年 11 月起新增，" +
+    "統計只計入有填值的情資；之前的月份無此資料。";
+  var DUE_GUIDE = global.TID.data.DUE_GUIDE;
+  var DUE_DEF = "「弱點處置期限」的天數係參考《" + DUE_GUIDE + "》（115 年 11 月 6 日訂定）表一：" +
+    "依「是否曝露於公眾網路、弱點已知被利用、能否被自動化利用、技術影響程度」四項指標對應期限；" +
+    "期限自知悉日起算，以日曆天計。";
+  function vulnStats(records) {
+    function tally(key) {
+      var m = {}, n = 0;
+      records.forEach(function (r) {
+        if (!r[key]) return;
+        m[r[key]] = (m[r[key]] || 0) + 1; n++;
+      });
+      return { counts: m, total: n };
+    }
+    function carrying(keys) {
+      return records.filter(function (r) { return keys.some(function (k) { return r[k]; }); }).length;
+    }
+    return {
+      kev: tally("kev"), automatable: tally("automatable"), impact: tally("impact"),
+      duePublic: tally("duePublic"), dueInternal: tally("dueInternal"),
+      // records carrying at least one field of each chart
+      total: carrying(["kev", "automatable"]),
+      dueTotal: carrying(["duePublic", "dueInternal"])
+    };
+  }
+
+  // Table 1 of the guideline: (曝露於公眾網路, KEV, 自動化利用, 技術影響) -> 處置期限.
+  // Returns { duePublic, dueInternal } or null when an indicator is not 是/否 / 完全|部分控制.
+  var DUE_LATER = "待下次系統更新";
+  var DUE_TABLE = {            // key = KEV + 自動化 + 影響(T 完全控制 / P 部分控制)
+    public:   { YYT: "3天", YYP: "3天", YNT: "3天", YNP: "14天", NYT: "3天", NYP: "14天", NNT: "14天", NNP: "60天" },
+    internal: { YYT: "3天", YYP: "14天", YNT: "14天", YNP: "14天", NYT: "60天", NYP: "60天", NNT: DUE_LATER, NNP: DUE_LATER }
+  };
+  function dueByGuide(kev, automatable, impact) {
+    function yn(v) { v = String(v || "").replace(/（.*$/, "").trim(); return v === "是" ? "Y" : v === "否" ? "N" : ""; }
+    var i = String(impact || "");
+    var t = i.indexOf("完全控制") === 0 ? "T" : i.indexOf("部分控制") === 0 ? "P" : "";
+    var k = yn(kev), a = yn(automatable);
+    if (!k || !a || !t) return null;
+    return { duePublic: DUE_TABLE.public[k + a + t], dueInternal: DUE_TABLE.internal[k + a + t] };
+  }
+
   // KPI summary for the current selection.
   function kpis(monthRecs, yearRecs) {
     function sev(recs, s) { return recs.filter(function (r) { return r.severity === s; }).length; }
@@ -98,7 +144,12 @@
       monthHi: sev(monthRecs, "高") + sev(monthRecs, "中"),
       yearHi: sev(yearRecs, "高") + sev(yearRecs, "中"),
       sources: new Set(monthRecs.map(function (r) { return r.source; })).size,
-      pending: pending(monthRecs)
+      pending: pending(monthRecs),
+      kev: monthRecs.filter(function (r) { return r.kev === "是"; }).length,
+      kevRated: monthRecs.filter(function (r) { return r.kev; }).length,
+      // most urgent deadline under the worst case (asset exposed to the public network)
+      due3: monthRecs.filter(function (r) { return r.duePublic === "3天"; }).length,
+      dueRated: monthRecs.filter(function (r) { return r.duePublic; }).length
     };
   }
 
@@ -111,6 +162,12 @@
     monthlyTrend: monthlyTrend,
     kpis: kpis,
     isPending: isPending,
-    PENDING_DEF: PENDING_DEF
+    PENDING_DEF: PENDING_DEF,
+    vulnStats: vulnStats,
+    VULN_DEF: VULN_DEF,
+    DUE_DEF: DUE_DEF,
+    DUE_GUIDE: DUE_GUIDE,
+    DUE_LATER: DUE_LATER,
+    dueByGuide: dueByGuide
   };
 })(window);

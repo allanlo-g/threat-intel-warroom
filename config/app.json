@@ -1,6 +1,7 @@
 {
   "mode": "consultant",
+  "brandName": "Medsig-TW",
   "consultantName": "資安顧問",
   "companiesFile": "config/companies.json",
-  "_note": "顧問維護版：保留公司切換下拉，用於維護多家客戶資料與標準來源。客戶交付版由 scripts/package_client.py 產生（mode=client，鎖定單一公司、無切換）。"
+  "_note": "brandName＝頁面標題顯示的公司名（標題為「<brandName> · 情資戰情看板」）。companies.json 只有一家公司時不顯示企業切換下拉。客戶交付版由 scripts/package_client.py 產生（mode=client）。"
 }

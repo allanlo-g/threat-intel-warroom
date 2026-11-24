@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>米數資科 · 情資戰情看板</title>
-<link rel="stylesheet" href="assets/styles.css?v=2026.08.09.1">
+<title>Medsig-TW · 情資戰情看板</title>
+<link rel="stylesheet" href="assets/styles.css?v=2026.11.24.1">
 </head>
 <body>
 <div id="fileWarn" class="file-warn" hidden>
@@ -17,7 +17,7 @@
   <div class="brand">
     <span class="logo">🛡️</span>
     <div>
-      <div class="brand-title" id="brandTitle">米數資科 · 情資戰情看板</div>
+      <div class="brand-title" id="brandTitle">Medsig-TW · 情資戰情看板</div>
       <div class="brand-sub" id="brandSub">Threat Intelligence War-Room</div>
     </div>
   </div>
@@ -71,6 +71,22 @@
       <div class="card-h">因應對策分布</div>
       <canvas id="chartCounter"></canvas>
     </div>
+    <div class="card">
+      <div class="card-h">弱點可利用性（KEV／自動化利用） <span class="scope-tag" id="vulnScope"></span></div>
+      <canvas id="chartVuln"></canvas>
+      <div class="empty-note" id="vulnEmpty" hidden>此期間無資料<br><span>弱點評估欄位自 2026 年 11 月起提供</span></div>
+    </div>
+    <div class="card">
+      <div class="card-h">弱點遭利用後之技術影響程度 <span class="scope-tag" id="impactScope"></span></div>
+      <canvas id="chartImpact"></canvas>
+      <div class="empty-note" id="impactEmpty" hidden>此期間無資料<br><span>弱點評估欄位自 2026 年 11 月起提供</span></div>
+    </div>
+    <div class="card">
+      <div class="card-h">弱點處置期限分布 <span class="scope-tag" id="dueScope"></span></div>
+      <canvas id="chartDue"></canvas>
+      <div class="empty-note" id="dueEmpty" hidden>此期間無資料<br><span>弱點評估欄位自 2026 年 11 月起提供</span></div>
+      <p class="card-note">註：「弱點處置期限」的天數係參考《各機關基於風險導向之弱點處置期限評估指引》（115 年 11 月 6 日訂定）表一，依是否曝露於公眾網路、弱點已知被利用、能否被自動化利用、技術影響程度評估；期限自知悉日起算，以日曆天計。</p>
+    </div>
   </section>
 </main>
 
@@ -87,10 +103,13 @@
       <thead><tr>
         <th>日期</th><th>來源</th><th>標題</th><th>內外部</th><th>類別</th>
         <th>威脅程度</th><th>影響系統</th><th>因應對策</th><th>進度</th>
+        <th title="弱點已知被利用 (CISA KEV)">KEV</th><th title="弱點能否被自動化利用">自動化利用</th>
+        <th title="弱點遭利用後之技術影響程度">技術影響</th><th title="弱點處置期限（曝露於公眾網路）— 天數參考《各機關基於風險導向之弱點處置期限評估指引》">處置期限<br>(曝露公眾網路)</th><th title="弱點處置期限（未曝露於公眾網路）— 天數參考《各機關基於風險導向之弱點處置期限評估指引》">處置期限<br>(未曝露公眾網路)</th>
       </tr></thead>
       <tbody></tbody>
     </table>
   </div>
+  <p class="muted table-note">註：「弱點處置期限」的天數係參考《各機關基於風險導向之弱點處置期限評估指引》（115 年 11 月 6 日訂定）表一，依是否曝露於公眾網路、弱點已知被利用、能否被自動化利用、技術影響程度評估；期限自知悉日起算，以日曆天計。</p>
 </main>
 
 <footer class="foot">
@@ -102,9 +121,9 @@
 </footer>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="assets/data.js?v=2026.08.09.1"></script>
-<script src="assets/stats.js?v=2026.08.09.1"></script>
-<script src="assets/ui.js?v=2026.08.09.1"></script>
-<script src="assets/app.js?v=2026.08.09.1"></script>
+<script src="assets/data.js?v=2026.11.24.1"></script>
+<script src="assets/stats.js?v=2026.11.24.1"></script>
+<script src="assets/ui.js?v=2026.11.24.1"></script>
+<script src="assets/app.js?v=2026.11.24.1"></script>
 </body>
 </html>

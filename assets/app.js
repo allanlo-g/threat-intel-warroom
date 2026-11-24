@@ -6,6 +6,7 @@
   var state = {
     mode: "consultant",       // "consultant" (multi-company) or "client" (locked single company)
     consultantName: "資安顧問",
+    brandName: "Medsig-TW",  // company name shown in the page title; set "brandName" in config/app.json
     branding: {},
     companies: [], standard: null,
     company: null,            // active company meta (from companies.json, + local year edits)
@@ -13,7 +14,7 @@
     effective: null,          // merged effective config
     normalize: null,
     allRecords: [],           // normalized snapshot records
-    liveMonths: {},           // live-fetched months cache: {"year-month": {year, month, recs}}
+    liveMonths: {},           // live-fetched months cache: {"year-month": {year, month, recs, layout}}
     pending: [],              // locally-added raw records not yet written back to the Sheet
     edits: {},                // client classification edits on fetched records {sig: {field:value}}
     editMode: false,
@@ -68,6 +69,7 @@
         return D.jget(companiesFile).then(function (cs) {
           state.mode = "consultant";
           state.consultantName = (app && app.consultantName) || cs.consultantName || state.consultantName;
+          if (app && app.brandName) state.brandName = app.brandName;
           state.defaultCompany = cs.defaultCompany;
           state.companies = cs.companies || [];
           applyMode();
@@ -95,8 +97,9 @@
 
   function applyMode() {
     var client = state.mode === "client";
-    // hide the company switcher in client deliverables
-    document.getElementById("companyCtrl").style.display = client ? "none" : "";
+    // the company switcher only makes sense with more than one company
+    document.getElementById("companyCtrl").style.display =
+      (client || state.companies.length < 2) ? "none" : "";
     // client builds usually don't expose the multi-company "年度設定 匯出 companies.json" wording
     var expBtn = document.getElementById("exportCompaniesBtn");
     if (expBtn) expBtn.textContent = client ? "⬇️ 匯出年度設定 (app.json)" : "⬇️ 匯出 companies.json";
@@ -114,7 +117,17 @@
 
   function brandTitleFor(meta) {
     if (state.mode === "client" && state.branding && state.branding.title) return state.branding.title;
-    return "米數資科 · 情資戰情看板";
+    return state.brandName + " · 情資戰情看板";
+  }
+
+  // Year -> sheet id: file config overlaid with this browser's local edits.
+  // A blank local value never hides an id that the config file provides.
+  function mergeYears(fileYears, localYears) {
+    var out = Object.assign({}, fileYears);
+    Object.keys(localYears || {}).forEach(function (y) {
+      if (localYears[y] || !out[y]) out[y] = localYears[y];
+    });
+    return out;
   }
 
   // ---------- company selection ----------
@@ -124,7 +137,7 @@
     lsSet(LS.lastCompany, id);
     // merge local year edits over companies.json years
     var localYears = lsGet(LS.years(id));
-    state.company = Object.assign({}, meta, { years: Object.assign({}, meta.years, localYears || {}) });
+    state.company = Object.assign({}, meta, { years: mergeYears(meta.years, localYears) });
 
     var ovPath = meta.configFile || ("config/company." + id + ".json");
     var snapPath = meta.snapshotFile || ("data/snapshot." + id + ".json");
@@ -147,6 +160,7 @@
       state.pending = lsGet(LS.add(id)) || [];
       state.edits = lsGet(LS.edit(id)) || {};
       document.getElementById("brandTitle").textContent = brandTitleFor(meta);
+      document.title = brandTitleFor(meta);
       initYearMonth();
       renderAll();
       var n = recs.length;
@@ -216,6 +230,11 @@
       if (e.riskScope != null) c.riskScope = e.riskScope;
       if (e.countermeasure != null) c.countermeasure = C.counter(e.countermeasure);
       if (e.progress != null) c.progress = e.progress;
+      if (e.kev != null) c.kev = C.yesNo(e.kev);
+      if (e.automatable != null) c.automatable = C.yesNo(e.automatable);
+      if (e.impact != null) c.impact = C.text(e.impact);
+      if (e.duePublic != null) c.duePublic = C.due(e.duePublic);
+      if (e.dueInternal != null) c.dueInternal = C.due(e.dueInternal);
       c._edited = true;
       return c;
     });
@@ -286,7 +305,9 @@
       date: r.date, day: r.day, year: r.year, month: r.month, source: r.sourceRaw,
       title: r.title, url: r.url, origin: r.origin, category: r.category,
       severity: r.severity, riskScope: r.riskScope, affected: r.affected,
-      countermeasure: r.countermeasure, progress: r.progress
+      countermeasure: r.countermeasure, progress: r.progress,
+      kev: r.kev, automatable: r.automatable, impact: r.impact,
+      duePublic: r.duePublic, dueInternal: r.dueInternal
     });
   }
   function rebuildFromOverride() {
@@ -315,8 +336,33 @@
   }
 
   // ---------- record maintenance ----------
-  var REC_KEYS = ["date", "source", "title", "url", "origin", "category",
-    "severity", "riskScope", "affected", "countermeasure", "progress"];
+  // Column layout of a month tab: the real header row when that month has been
+  // fetched live, otherwise the standard layout for its period.
+  function layoutFor(year, month) {
+    var lm = state.liveMonths[year + "-" + month];
+    return (lm && lm.layout) || D.defaultLayout(year, month);
+  }
+  // Does this month's tab have the column for a given field?
+  function hasField(year, month, key) { return layoutFor(year, month).indexOf(key) >= 0; }
+  // One sheet row for a record, cells ordered like its month tab.
+  function sheetRow(rec) {
+    return layoutFor(rec.year, rec.month).map(function (k) {
+      return k && rec[k] != null ? String(rec[k]) : "";
+    });
+  }
+  function setLive(year, month, live) {
+    state.liveMonths[year + "-" + month] = { year: year, month: month, recs: live.recs, layout: live.layout };
+  }
+  function csvCell(v) {
+    v = String(v == null ? "" : v);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+  // CSV with BOM so Excel opens the Chinese text correctly
+  function csvText(headers, rows) {
+    return "﻿" + [headers].concat(rows).map(function (r) { return r.map(csvCell).join(","); }).join("\r\n");
+  }
+  function labelsOf(keys) { return keys.map(function (k) { return D.FIELD_LABEL[k]; }); }
+  function valuesOf(keys) { return function (r) { return keys.map(function (k) { return r[k]; }); }; }
 
   function savePending() { lsSet(LS.add(state.company.id), state.pending); }
 
@@ -330,7 +376,7 @@
     var sid = state.company.years[year];
     if (!sid) return Promise.resolve(null);
     return D.fetchMonthLive(sid, year, month)
-      .then(function (raw) { return raw.map(state.normalize); })
+      .then(function (live) { return { recs: live.recs.map(state.normalize), layout: live.layout }; })
       .catch(function () { return null; });
   }
   function canonField(k, v) {
@@ -338,6 +384,8 @@
     if (k === "severity") return D.canon.severity(v);
     if (k === "category") return D.canon.category(v);
     if (k === "countermeasure") return D.canon.counter(v);
+    if (k === "kev" || k === "automatable") return D.canon.yesNo(v);
+    if (k === "duePublic" || k === "dueInternal") return D.canon.due(v);
     return String(v == null ? "" : v).trim();
   }
 
@@ -354,7 +402,9 @@
       date: fmtDateISO(iso), source: v("f_source"), title: v("f_title"), url: v("f_url"),
       origin: v("f_origin"), category: v("f_category"), severity: v("f_severity"),
       riskScope: v("f_riskScope"), affected: v("f_affected"),
-      countermeasure: v("f_counter"), progress: v("f_progress")
+      countermeasure: v("f_counter"), progress: v("f_progress"),
+      kev: v("f_kev"), automatable: v("f_automatable"), impact: v("f_impact"),
+      duePublic: v("f_duePublic"), dueInternal: v("f_dueInternal")
     };
     if (p.length === 3) { rec.year = +p[0]; rec.month = +p[1]; rec.day = +p[2]; }
     else { rec.year = state.year; rec.month = targetMonth(); rec.day = ""; }
@@ -379,15 +429,14 @@
     if (!rec.title) { alert("請填寫資料標題。"); return; }
     if (!rec.date) { alert("請選擇資料日期。"); return; }
     state.pending.push(rec); savePending();
-    ["f_title", "f_url", "f_affected", "f_progress"].forEach(function (id) { document.getElementById(id).value = ""; });
-    renderMaintainView();
+    renderMaintainView();   // re-renders the form, which also clears it
     status("已加入 1 列（共 " + state.pending.length + " 列待寫回）。可「📋 複製」或「⬇️ 匯出」貼回 Google Sheet。", "snap");
   }
 
   function pendingTSV() {
     return state.pending.map(function (r) {
-      return REC_KEYS.map(function (k) {
-        return String(r[k] == null ? "" : r[k]).replace(/\t/g, " ").replace(/\r?\n/g, " ");
+      return sheetRow(r).map(function (v) {
+        return v.replace(/\t/g, " ").replace(/\r?\n/g, " ");
       }).join("\t");
     }).join("\n");
   }
@@ -395,7 +444,7 @@
   function copyRows() {
     if (!state.pending.length) { alert("清單是空的。"); return; }
     var tsv = pendingTSV();
-    function ok() { status("已複製 " + state.pending.length + " 列到剪貼簿。請到 Google Sheet 該月分頁最後一列貼上（欄位順序已對齊）。", "live"); }
+    function ok() { status("已複製 " + state.pending.length + " 列到剪貼簿。請到 Google Sheet 該月分頁最後一列貼上（欄位順序已依該月分頁的標題列對齊）。", "live"); }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(tsv).then(ok).catch(function () { exportRows(); });
     } else { exportRows(); }
@@ -403,12 +452,10 @@
 
   function exportRows() {
     if (!state.pending.length) { alert("清單是空的。"); return; }
-    var headers = ["資料日期", "資料來源", "資料標題", "訊息網址連結", "威脅情資來源",
-      "威脅情報類別", "對組織的現況威脅程度", "風險之層面/影響系統", "受影響系統版本", "因應對策", "執行進度說明"];
-    function cell(v) { v = String(v == null ? "" : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
-    var lines = [headers.join(",")];
-    state.pending.forEach(function (r) { lines.push(REC_KEYS.map(function (k) { return cell(r[k]); }).join(",")); });
-    download("﻿" + lines.join("\r\n"), state.company.name + "_新增情資列.csv", "text/csv");
+    // columns follow the tab of the first pending row (rows are normally one month)
+    var keys = layoutFor(state.pending[0].year, state.pending[0].month).filter(Boolean);
+    download(csvText(labelsOf(keys), state.pending.map(valuesOf(keys))),
+      state.company.name + "_新增情資列.csv", "text/csv");
   }
 
   function clearRows() {
@@ -424,13 +471,14 @@
     if (!rec.date) { alert("請選擇資料日期。"); return; }
     if (!url) { alert("尚未設定本年度的 Apps Script Web App 端點。\n請展開下方「進階」貼上端點，或改用「📋 複製／⬇️ 匯出」貼回 Sheet。\n部署說明見 README 與 scripts/apps_script_endpoint.gs。"); return; }
     var sheetName = rec.year + "年" + rec.month + "月";
-    var row = REC_KEYS.map(function (k) { return rec[k] || ""; });
     status("寫入 Google Sheet（" + sheetName + "）...");
-    postEndpoint(url, { action: "append", sheet: sheetName, row: row })
+    // `record` lets the endpoint place each field by the tab's header row;
+    // `row` (already ordered like the tab) serves older endpoint deployments.
+    postEndpoint(url, { action: "append", sheet: sheetName, record: rec, row: sheetRow(rec) })
       .then(function () { return verifyMonth(rec.year, rec.month); })
       .then(function (live) {
-        if (live) { state.liveMonths[rec.year + "-" + rec.month] = { year: rec.year, month: rec.month, recs: live }; renderAll(); }
-        var found = live && live.some(function (r) { return r.title === rec.title; });
+        if (live) { setLive(rec.year, rec.month, live); renderAll(); }
+        var found = live && live.recs.some(function (r) { return r.title === rec.title; });
         ["f_title", "f_url", "f_affected", "f_progress"].forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ""; });
         if (found) status("✓ 已寫入並確認：" + sheetName + " 已新增該列，看板已更新。", "live");
         else if (live) status("已送出，但回讀 " + sheetName + " 尚未看到該列。請確認 Apps Script 端點部署為「任何人可存取」，或稍候再按「🔄 即時更新」。", "err");
@@ -466,9 +514,9 @@
       return Promise.resolve(false);
     }
     if (!auto) status("即時抓取 " + year + " 年 " + month + " 月 ...");
-    return D.fetchMonthLive(id, year, month).then(function (rawRecs) {
-      var recs = rawRecs.map(function (r) { return state.normalize(r); });
-      state.liveMonths[year + "-" + month] = { year: year, month: month, recs: recs };
+    return D.fetchMonthLive(id, year, month).then(function (live) {
+      var recs = live.recs.map(function (r) { return state.normalize(r); });
+      setLive(year, month, { recs: recs, layout: live.layout });
       if (!auto && state.year === year && state.month !== "all") {
         state.month = month; var ms = $("monthSel"); if (ms) ms.value = month;
       }
@@ -522,14 +570,14 @@
   // ---------- CSV export ----------
   function exportCSV() {
     var recs = selectedRecords();
-    var headers = ["資料日期", "資料來源", "資料標題", "訊息網址連結", "威脅情資來源",
-      "威脅情報類別", "威脅程度", "風險之層面/影響系統", "受影響系統版本", "因應對策", "執行進度說明"];
-    var keys = ["date", "source", "title", "url", "origin", "category", "severity", "riskScope", "affected", "countermeasure", "progress"];
-    function cell(v) { v = String(v == null ? "" : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
-    var lines = [headers.join(",")];
-    recs.forEach(function (r) { lines.push(keys.map(function (k) { return cell(r[k]); }).join(",")); });
+    // the two vulnerability columns only when the selection actually carries them
+    var keys = D.FIELD_KEYS.filter(function (k) {
+      return D.VULN_KEYS.indexOf(k) < 0 ||
+        recs.some(function (r) { return r[k] || hasField(r.year, r.month, k); });
+    });
     var scope = state.month === "all" ? state.year + "年全年" : state.year + "年" + state.month + "月";
-    download("﻿" + lines.join("\r\n"), state.company.name + "_" + scope + "_情資明細.csv", "text/csv");
+    download(csvText(labelsOf(keys), recs.map(valuesOf(keys))),
+      state.company.name + "_" + scope + "_情資明細.csv", "text/csv");
   }
 
   function download(text, name, mime) {
@@ -545,8 +593,10 @@
     var canEdit = !!$("editToggle");                 // read-only page omits the edit toggle
     var editing = canEdit && state.editMode && state.month !== "all";
     var search = $("detailSearch");
-    U.renderDetail(selectedRecords(), search ? search.value : "",
-      { edit: editing, eff: state.effective, sig: recSig, onEdit: editField });
+    U.renderDetail(selectedRecords(), search ? search.value : "", {
+      edit: editing, eff: state.effective, sig: recSig, onEdit: editField,
+      hasField: function (r, key) { return hasField(r.year, r.month, key); }
+    });
     refreshEditControls();
   }
   function refreshEditControls() {
@@ -560,7 +610,7 @@
       hint.innerHTML = "編輯分類請先在上方選擇<b>單一月份</b>（非「全年累計」）。";
     } else if (state.editMode) {
       hint.hidden = false;
-      hint.innerHTML = "編輯模式：直接修改下表的<b>內外部／類別／威脅程度／影響系統／因應對策／進度</b>，" +
+      hint.innerHTML = "編輯模式：直接修改下表的<b>內外部／類別／威脅程度／影響系統／因應對策／進度／弱點評估各欄</b>（KEV、自動化利用、技術影響、處置期限僅在有該欄位的分頁可編輯），" +
         "會即時更新統計並存於本機；可「⬇️ 匯出分類修改」或「🔗 寫回 Sheet」。目前已編輯 <b>" + n + "</b> 筆。";
     } else {
       hint.hidden = true;
@@ -576,22 +626,22 @@
     status("已更新分類（本機暫存，共 " + Object.keys(state.edits).length + " 筆已編輯）。", "snap");
   }
   function editedRecords(scopeYear, scopeMonth) {
-    var base = state.allRecords.concat(state.pending.map(state.normalize));
-    if (scopeYear != null) base = base.filter(function (r) {
-      return r.year === scopeYear && (scopeMonth == null || r.month === scopeMonth);
+    // yearRecords() = snapshot + live-fetched months + pending, edits applied
+    var years = scopeYear != null ? [scopeYear] : availableYears();
+    var out = [];
+    years.forEach(function (y) {
+      yearRecords(y).forEach(function (r) {
+        if ((scopeMonth == null || r.month === scopeMonth) && state.edits[recSig(r)]) out.push(r);
+      });
     });
-    return withEdits(base).filter(function (r) { return state.edits[recSig(r)]; });
+    return out;
   }
   function exportEdits() {
     var edited = editedRecords();
     if (!edited.length) { alert("尚無分類修改。"); return; }
-    var headers = ["資料日期", "資料來源", "資料標題", "訊息網址連結", "威脅情資來源",
-      "威脅情報類別", "對組織的現況威脅程度", "風險之層面/影響系統", "因應對策", "執行進度說明"];
-    var keys = ["date", "source", "title", "url", "origin", "category", "severity", "riskScope", "countermeasure", "progress"];
-    function cell(v) { v = String(v == null ? "" : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
-    var lines = [headers.join(",")];
-    edited.forEach(function (r) { lines.push(keys.map(function (k) { return cell(r[k]); }).join(",")); });
-    download("﻿" + lines.join("\r\n"), state.company.name + "_分類修改.csv", "text/csv");
+    var keys = D.FIELD_KEYS.filter(function (k) { return k !== "affected"; });
+    download(csvText(labelsOf(keys), edited.map(valuesOf(keys))),
+      state.company.name + "_分類修改.csv", "text/csv");
   }
   function writeEdits() {
     var url = lsGet(LS.webapp(state.company.id, state.year)) || (document.getElementById("webAppUrl") && document.getElementById("webAppUrl").value);
@@ -612,11 +662,11 @@
     chain.then(function () { return verifyMonth(state.year, m); })
       .then(function (live) {
         if (!live) { status("已送出 " + recs.length + " 筆更新；此年度未設 Sheet ID，無法回讀確認。", "snap"); return; }
-        state.liveMonths[state.year + "-" + m] = { year: state.year, month: m, recs: live };
+        setLive(state.year, m, live);
         var confirmed = 0;
         recs.forEach(function (r) {
           var e = state.edits[recSig(r)] || {};
-          var f = live.filter(function (x) { return x.title === r.title && (!r.url || x.url === r.url); })[0];
+          var f = live.recs.filter(function (x) { return x.title === r.title && (!r.url || x.url === r.url); })[0];
           if (f && Object.keys(e).every(function (k) { return canonField(k, e[k]) === f[k]; })) confirmed++;
         });
         renderAll();
@@ -652,7 +702,10 @@
       '<li><b>年度累積總數</b>：所選年度全年情資筆數。</li>' +
       '<li><b>本月中高威脅</b>：威脅程度為「高」或「中」的筆數。</li>' +
       '<li><b>本月待處理</b>：' + U.esc(S.PENDING_DEF) + '</li>' +
-      '<li><b>本月來源數</b>：當月出現的情資來源（已去重、已正規化）數量。</li></ul>' +
+      '<li><b>本月來源數</b>：當月出現的情資來源（已去重、已正規化）數量。</li>' +
+      '<li><b>本月 KEV 已知被利用</b>：「弱點已知被利用(CISA KEV)」為「是」的筆數。' + U.esc(S.VULN_DEF) + '</li>' +
+      '<li><b>本月 3 天內須處置</b>：「弱點處置期限（曝露於公眾網路）」為「3天」的筆數。</li>' +
+      '<li><b>弱點處置期限</b>：' + U.esc(S.DUE_DEF) + '</li></ul>' +
       '<h3>版權宣告</h3><p>系統製作-每月情資資訊維護：<b>米數資科顧問部</b>' +
       '（<a href="mailto:isms@medsigtw.com">isms@medsigtw.com</a>）｜' +
       '<a href="https://www.medsigtw.com" target="_blank" rel="noopener">https://www.medsigtw.com</a><br>' +
@@ -672,7 +725,7 @@
         status("🔄 已同步其他分頁的設定／編輯變更。", "live");
       } else if (e.key === LS.years(id)) {
         var meta = state.companies.filter(function (c) { return c.id === id; })[0] || {};
-        state.company.years = Object.assign({}, meta.years, lsGet(LS.years(id)) || {});
+        state.company.years = mergeYears(meta.years, lsGet(LS.years(id)));
         reloadLocalState();
         status("🔄 已同步其他分頁的年度設定變更。", "live");
       }

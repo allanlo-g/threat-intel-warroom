@@ -13,6 +13,13 @@
     COL.cyan, COL.orange, COL.red, COL.gray];
   var SEV_COL = { "高": COL.red, "中": COL.amber, "低": COL.green, "現行不影響": COL.blue, "未分類": COL.gray };
   var GRID = "#e6ecf5", TICK = "#475569", DBORDER = "#ffffff";
+  // values of the two vulnerability columns (KEV / 自動化利用), in display order
+  var VULN_VALUES = ["是", "否", "不適用"];
+  var VULN_COL = { "是": COL.red, "否": COL.blue, "不適用": COL.gray };
+  var IMPACT_VALUES = ["完全控制", "部分控制", "不適用"];
+  var IMPACT_COL = { "完全控制": COL.red, "部分控制": COL.amber, "不適用": COL.gray };
+  // 處置期限 per the guideline's Table 1, most urgent first
+  var DUE_VALUES = ["3天", "14天", "60天", S.DUE_LATER, "不適用"];
 
   Chart.defaults.color = TICK;
   Chart.defaults.font.family = '"Segoe UI","Microsoft JhengHei",sans-serif';
@@ -72,6 +79,31 @@
     });
   }
 
+  // 100%-comparable stacked bar: one row per label, one segment per series
+  function stackedBar(id, labels, series) {
+    destroy(id);
+    var ctx = document.getElementById(id);
+    if (!ctx) return;
+    charts[id] = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: labels,
+        datasets: series.map(function (s) {
+          return { label: s.label, data: s.data, backgroundColor: s.color, borderRadius: 5, maxBarThickness: 46 };
+        })
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: "bottom", labels: { boxWidth: 12, padding: 12, font: { size: 12 } } } },
+        scales: {
+          x: { stacked: true, grid: { color: GRID }, beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } },
+          y: { stacked: true, grid: { display: false }, ticks: { font: { size: 12 } } }
+        }
+      }
+    });
+  }
+
   function lineTrend(id, arr) {
     destroy(id);
     var ctx = document.getElementById(id);
@@ -108,7 +140,13 @@
       { cls: "", num: k.yearTotal, lab: ctx.year + " 年累積總數", sub: "全年累計" },
       { cls: "hi", num: k.monthHi, lab: "本月中高威脅", sub: "威脅程度＝高 + 中" },
       { cls: "mid", num: k.pending, lab: "本月待處理", sub: "進度未結案", help: S.PENDING_DEF },
-      { cls: "", num: k.sources, lab: "本月來源數", sub: "去重後" }
+      { cls: "", num: k.sources, lab: "本月來源數", sub: "去重後" },
+      k.kevRated
+        ? { cls: "hi", num: k.kev, lab: "本月 KEV 已知被利用", sub: "CISA KEV＝是（" + k.kevRated + " 筆有填值）", help: S.VULN_DEF }
+        : { cls: "", num: "—", lab: "本月 KEV 已知被利用", sub: "此期間無資料", help: S.VULN_DEF },
+      k.dueRated
+        ? { cls: "hi", num: k.due3, lab: "本月 3 天內須處置", sub: "處置期限＝3天（曝露於公眾網路）", help: S.DUE_DEF }
+        : { cls: "", num: "—", lab: "本月 3 天內須處置", sub: "此期間無資料", help: S.DUE_DEF }
     ];
     document.getElementById("kpis").innerHTML = cards.map(function (c) {
       var help = c.help ? '<span class="help" data-tip="' + esc(c.help) + '" title="' + esc(c.help) + '">?</span>' : "";
@@ -126,6 +164,107 @@
       function (_, i) { return PALETTE[i % PALETTE.length]; });
     lineTrend("chartTrend", S.monthlyTrend(year, ctx.year));
     doughnut("chartCounter", S.topN(S.countBy(month, "countermeasure"), 8));
+    renderVuln(month);
+  }
+
+  // 弱點可利用性：KEV 已知被利用 / 可被自動化利用（2026-11 起才有資料）
+  function renderVuln(recs) {
+    var canvas = document.getElementById("chartVuln");
+    if (!canvas) return;
+    var v = S.vulnStats(recs);
+    renderImpact(v);
+    renderDue(v);
+    var empty = document.getElementById("vulnEmpty"), tag = document.getElementById("vulnScope");
+    canvas.hidden = !v.total;
+    if (empty) empty.hidden = !!v.total;
+    if (tag) tag.textContent = v.total ? "（" + v.total + " 筆有資料）" : "";
+    if (!v.total) { destroy("chartVuln"); return; }
+    var rows = [v.kev.counts, v.automatable.counts];
+    // 是 / 否 / 不適用 first, then whatever else the sheet contains
+    var values = VULN_VALUES.slice();
+    rows.forEach(function (m) {
+      Object.keys(m).forEach(function (k) { if (values.indexOf(k) < 0) values.push(k); });
+    });
+    var extra = [COL.amber, COL.purple, COL.teal];
+    var series = values.map(function (val, i) {
+      return {
+        label: val, color: VULN_COL[val] || extra[(i - VULN_VALUES.length) % extra.length],
+        data: rows.map(function (m) { return m[val] || 0; })
+      };
+    }).filter(function (s) { return s.data[0] || s.data[1]; });
+    stackedBar("chartVuln", ["KEV 已知被利用", "可被自動化利用"], series);
+  }
+
+  // show the canvas or its "no data" note; returns true when there is data
+  function toggleEmpty(chartId, emptyId, tagId, n) {
+    var canvas = document.getElementById(chartId);
+    if (!canvas) return false;
+    var empty = document.getElementById(emptyId), tag = document.getElementById(tagId);
+    canvas.hidden = !n;
+    if (empty) empty.hidden = !!n;
+    if (tag) tag.textContent = n ? "（" + n + " 筆有資料）" : "";
+    if (!n) destroy(chartId);
+    return !!n;
+  }
+  // known values first (in the given order), then whatever else the sheet contains
+  function orderedValues(known, maps) {
+    var values = known.slice();
+    maps.forEach(function (m) {
+      Object.keys(m).forEach(function (k) { if (values.indexOf(k) < 0) values.push(k); });
+    });
+    return values.filter(function (val) { return maps.some(function (m) { return m[val]; }); });
+  }
+
+  // 弱點遭利用後之技術影響程度
+  function renderImpact(v) {
+    if (!toggleEmpty("chartImpact", "impactEmpty", "impactScope", v.impact.total)) return;
+    var m = v.impact.counts;
+    var pairs = orderedValues(IMPACT_VALUES, [m]).map(function (val) { return [val, m[val]]; });
+    var extra = [COL.purple, COL.teal, COL.pink];
+    doughnut("chartImpact", pairs, function (lab, i) {
+      return IMPACT_COL[lab] || extra[i % extra.length];
+    });
+  }
+
+  // 弱點處置期限：曝露 / 未曝露於公眾網路 兩種情境並列
+  function renderDue(v) {
+    if (!toggleEmpty("chartDue", "dueEmpty", "dueScope", v.dueTotal)) return;
+    var pub = v.duePublic.counts, inn = v.dueInternal.counts;
+    var labels = orderedValues(DUE_VALUES, [pub, inn]);
+    destroy("chartDue");
+    charts.chartDue = new Chart(document.getElementById("chartDue"), {
+      type: "bar",
+      data: {
+        labels: labels,
+        datasets: [
+          { label: "曝露於公眾網路", data: labels.map(function (l) { return pub[l] || 0; }), backgroundColor: COL.red, borderRadius: 5, maxBarThickness: 30 },
+          { label: "未曝露於公眾網路", data: labels.map(function (l) { return inn[l] || 0; }), backgroundColor: COL.blue, borderRadius: 5, maxBarThickness: 30 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: "bottom", labels: { boxWidth: 12, padding: 12, font: { size: 12 } } } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+          y: { grid: { color: GRID }, beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } }
+        }
+      }
+    });
+  }
+
+  function yesNoTag(s) {
+    if (!s) return '<span class="muted">—</span>';
+    return '<span class="sev ' + (s === "是" ? "sev-hi" : "sev-na") + '">' + esc(s) + "</span>";
+  }
+  function impactTag(s) {
+    if (!s) return '<span class="muted">—</span>';
+    var cls = s.indexOf("完全控制") === 0 ? "sev-hi" : s.indexOf("部分控制") === 0 ? "sev-mid" : "sev-na";
+    return '<span class="sev ' + cls + '">' + esc(s) + "</span>";
+  }
+  function dueTag(s) {
+    if (!s) return '<span class="muted">—</span>';
+    var cls = s === "3天" ? "sev-hi" : s === "14天" ? "sev-mid" : s === "60天" ? "sev-lo" : "sev-na";
+    return '<span class="sev ' + cls + '">' + esc(s) + "</span>";
   }
 
   // ---- detail table -------------------------------------------------------
@@ -165,6 +304,11 @@
       if (!f) return true;
       return (r.title + " " + r.source + " " + r.category + " " + r.countermeasure).toLowerCase().indexOf(f) >= 0;
     });
+    // vulnerability columns are editable only where the month tab has that column
+    var hasField = opts.hasField || function (r, key) { return !!r[key]; };
+    function vulnCell(r, key, options, tag) {
+      return edit && hasField(r, key) ? cellSelect(key, sigOf(r), options, r[key], false) : tag(r[key]);
+    }
     document.getElementById("detailCount").textContent = "共 " + rows.length + " 筆";
     var tb = document.querySelector("#detailTable tbody");
     tb.innerHTML = rows.map(function (r) {
@@ -173,6 +317,11 @@
         : esc(r.title);
       var mark = r._edited ? '<span title="已編輯，與原始 Sheet 不同" style="color:#2563eb">✎ </span>' : "";
       var c4, c5, c6, c7, c8, c9;
+      var vuln = "</td><td>" + vulnCell(r, "kev", VULN_VALUES, yesNoTag) +
+        "</td><td>" + vulnCell(r, "automatable", VULN_VALUES, yesNoTag) +
+        "</td><td>" + vulnCell(r, "impact", IMPACT_VALUES, impactTag) +
+        "</td><td>" + vulnCell(r, "duePublic", DUE_VALUES, dueTag) +
+        "</td><td>" + vulnCell(r, "dueInternal", DUE_VALUES, dueTag);
       if (edit) {
         var s = sigOf(r), t = eff.taxonomy;
         c4 = cellSelect("origin", s, t.origin, r.origin, true);
@@ -188,8 +337,8 @@
       return "<tr><td>" + mark + esc(r.date) + "</td><td>" + esc(r.source) + "</td><td>" + title +
         "</td><td>" + c4 + "</td><td>" + c5 + "</td><td>" + c6 +
         "</td><td>" + c7 + "</td><td>" + c8 + "</td><td>" + c9 +
-        "</td></tr>";
-    }).join("") || '<tr><td colspan="9" class="muted" style="padding:20px;text-align:center">沒有符合的資料</td></tr>';
+        vuln + "</td></tr>";
+    }).join("") || '<tr><td colspan="14" class="muted" style="padding:20px;text-align:center">沒有符合的資料</td></tr>';
 
     if (edit && opts.onEdit) {
       tb.querySelectorAll(".cell-sel, .cell-input").forEach(function (el) {
@@ -234,7 +383,30 @@
       selectField("f_riskScope", "風險之層面/影響系統", t.riskScope || []) +
       inputField("f_affected", "受影響之系統/版本", "選填") +
       selectField("f_counter", "因應對策", eff.countermeasures || []) +
-      inputField("f_progress", "執行進度說明", "如：OK、處理中、密集觀察", "text", true);
+      selectField("f_kev", "弱點已知被利用 (CISA KEV)", VULN_VALUES) +
+      selectField("f_automatable", "弱點能否被自動化利用", VULN_VALUES) +
+      selectField("f_impact", "弱點遭利用後之技術影響程度", IMPACT_VALUES) +
+      selectField("f_duePublic", "弱點處置期限（曝露於公眾網路）", DUE_VALUES) +
+      selectField("f_dueInternal", "弱點處置期限（未曝露於公眾網路）", DUE_VALUES) +
+      inputField("f_progress", "執行進度說明", "如：OK、處理中、密集觀察", "text", true) +
+      '<div class="field full muted">兩個「弱點處置期限」的天數參考《' + esc(S.DUE_GUIDE) + '》表一：' +
+      '選好 KEV、自動化利用、技術影響程度後會自動帶入建議期限，仍可手動調整。</div>' +
+      '<div class="field full muted">寫回時欄位會依該月分頁的標題列自動對齊；分頁沒有的欄位' +
+      '（例如 2026 年 11 月前的弱點評估欄位）不會寫入。</div>';
+
+    // suggest the two deadlines from the guideline's Table 1
+    function el(id) { return document.getElementById(id); }
+    function suggestDue() {
+      var kev = el("f_kev").value, auto = el("f_automatable").value, imp = el("f_impact").value;
+      var due = S.dueByGuide(kev, auto, imp);
+      if (!due && [kev, auto, imp].every(function (x) { return x === "不適用"; })) {
+        due = { duePublic: "不適用", dueInternal: "不適用" };
+      }
+      if (!due) return;
+      el("f_duePublic").value = due.duePublic;
+      el("f_dueInternal").value = due.dueInternal;
+    }
+    ["f_kev", "f_automatable", "f_impact"].forEach(function (id) { el(id).onchange = suggestDue; });
   }
 
   function renderPending(rows, handlers) {
